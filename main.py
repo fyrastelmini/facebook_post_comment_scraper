@@ -210,7 +210,7 @@ def fetch_comments_for_post(post_id, cookies=None):
     print(f"  Using feedback_id: {feedback_id}")
     
     all_data = []
-    comments, post_info = fetch_comments(feedback_id, cookies=cookies)
+    comments, post_info = fetch_comments(feedback_id, cookies=cookies, post_id=post_id)
     
     for c in comments:
         print(f"    🗨️ {c.get('text', '')[:50]}...")

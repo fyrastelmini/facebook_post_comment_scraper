@@ -88,7 +88,7 @@ def comments_payload(feedback_id, cursor=None, cookies=None):
         "fb_dtsg": FB_DTSG if FB_DTSG else "",
         "doc_id": "25550760954572974",
         "variables": json.dumps({
-            "commentsAfterCount": -1,
+            "commentsAfterCount": 100,  # Request 100 comments per batch for full pagination
             "commentsAfterCursor": cursor,
             "commentsIntentToken": "REVERSE_CHRONOLOGICAL_UNFILTERED_INTENT_V1",
             "feedLocation": "DEDICATED_COMMENTING_SURFACE",
@@ -147,12 +147,12 @@ def fb_json(response_text):
     return json.loads(first)
 
 
-def fetch_comments(feedback_id, cookies=None):
+def fetch_comments(feedback_id, cookies=None, post_id=None):
     results = []
     cursor = None
     response_count = 0
     post_info = None  # Store parent post info from first response
-
+    dataset = []  # Store full comment nodes for CSV export
     while True:
         headers = {**BASE_HEADERS, "x-fb-friendly-name": "CommentsListComponentsPaginationQuery"}
         r = retry_request(
@@ -163,7 +163,7 @@ def fetch_comments(feedback_id, cookies=None):
             cookies=cookies
         )
         j = fb_json(r.text)
-        
+
         # Save each JSON response for inspection
         response_count += 1
         # with open(f"response_{response_count}.json", "w", encoding="utf-8") as f:
@@ -179,7 +179,10 @@ def fetch_comments(feedback_id, cookies=None):
 
         edges = comments_block.get("edges", [])
         if not edges:
+            print(f"  ✓ Pagination complete. Total comments fetched: {len(results)}")
             break
+
+        print(f"  📄 Page {response_count}: Fetching {len(edges)} comments...")
 
         for e in edges:
             n = e["node"]
@@ -208,23 +211,32 @@ def fetch_comments(feedback_id, cookies=None):
             # Extract reaction count
             reactors = fb.get("reactors", {})
             total_reactions = reactors.get("count_reduced", "0")
-            
+            dataset.append(n)
             results.append({
                 # "comment_id": n["legacy_fbid"],
-                # "author": n["author"]["name"],
+                "author": n["author"]["name"],
                 "text": (n.get("body") or {}).get("text", ""),
                 "reaction_count": total_reactions,
                 "_feedback_id": fb["id"],  # Internal use only (for fetching replies)
                 "_expansion_token": fb["expansion_info"]["expansion_token"]  # Internal use only
             })
-
-        cursor = comments_block.get("page_info", {}).get("end_cursor")
-        #break
-        if not cursor:
+        
+        # Check pagination status
+        page_info = comments_block.get("page_info", {})
+        has_next_page = page_info.get("has_next_page", False)
+        cursor = page_info.get("end_cursor")
+        
+        if not has_next_page or not cursor:
+            print(f"  ✓ No more pages. Total comments fetched: {len(results)}")
             break
 
-        #time.sleep(0.4)
+        print(f"  ➜ More comments available, fetching next page...")
+        time.sleep(0.5)  # Small delay between requests to avoid rate limiting
 
+        #time.sleep(0.4)
+    import pandas as pd
+    df = pd.DataFrame(dataset)
+    df.to_csv(f"{post_id}_comments.csv", index=False)
     return results, post_info
 
 # ===== FETCH REPLIES =====
